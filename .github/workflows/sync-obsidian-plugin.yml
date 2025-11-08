@@ -46,6 +46,98 @@ jobs:
             --exclude 'upstream/' \
             upstream/packages/obsidian-plugin/ ./
 
+      - name: Resolve workspace dependency versions
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const repoRoot = process.cwd();
+          const packageJsonPath = path.join(repoRoot, 'package.json');
+          if (!fs.existsSync(packageJsonPath)) {
+            console.log('package.json not found; skipping workspace dependency resolution.');
+            process.exit(0);
+          }
+
+          const upstreamRoot = path.join(repoRoot, 'upstream');
+          if (!fs.existsSync(upstreamRoot)) {
+            console.log('upstream directory not found; skipping workspace dependency resolution.');
+            process.exit(0);
+          }
+
+          const visited = new Set();
+          const skipDirs = new Set(['node_modules', '.git']);
+          const versionByName = new Map();
+
+          const queue = [upstreamRoot];
+          while (queue.length) {
+            const current = queue.shift();
+            if (visited.has(current)) continue;
+            visited.add(current);
+
+            const pkgFile = path.join(current, 'package.json');
+            if (fs.existsSync(pkgFile)) {
+              try {
+                const pkgJson = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+                if (pkgJson.name && pkgJson.version) {
+                  versionByName.set(pkgJson.name, pkgJson.version);
+                }
+              } catch (error) {
+                console.warn(`Warning: failed to read ${pkgFile}: ${error.message}`);
+              }
+            }
+
+            let entries;
+            try {
+              entries = fs.readdirSync(current, { withFileTypes: true });
+            } catch {
+              continue;
+            }
+
+            for (const entry of entries) {
+              if (!entry.isDirectory()) continue;
+              if (skipDirs.has(entry.name)) continue;
+              queue.push(path.join(current, entry.name));
+            }
+          }
+
+          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+          const sections = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+          const unresolved = [];
+          let changed = false;
+
+          for (const section of sections) {
+            const deps = packageJson[section];
+            if (!deps) continue;
+
+            for (const [depName, version] of Object.entries(deps)) {
+              if (typeof version !== 'string') continue;
+              if (version.trim() !== 'workspace:*') continue;
+
+              if (!versionByName.has(depName)) {
+                unresolved.push(depName);
+                continue;
+              }
+
+              const resolvedVersion = versionByName.get(depName);
+              deps[depName] = resolvedVersion;
+              changed = true;
+              console.log(`Resolved ${depName} to version ${resolvedVersion}`);
+            }
+          }
+
+          if (unresolved.length) {
+            console.error(`Could not resolve versions for dependencies: ${unresolved.join(', ')}`);
+            process.exit(1);
+          }
+
+          if (changed) {
+            fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf8');
+          } else {
+            console.log('No workspace:* dependencies found to update.');
+          }
+          NODE
+
       - name: Detect changes
         id: changes
         run: |
