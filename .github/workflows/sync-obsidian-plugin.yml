@@ -1,0 +1,67 @@
+name: Sync Obsidian Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Git reference (branch, tag, or SHA) to sync from.
+        default: main
+        required: false
+      upstream_repository:
+        description: Repository containing the obsidian plugin package.
+        default: lgazo/event-modeling-tools
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout upstream repository package
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.upstream_repository }}
+          ref: ${{ inputs.source_ref }}
+          path: upstream
+
+      - name: Ensure upstream package exists
+        run: |
+          if [ ! -d "upstream/packages/obsidian-plugin" ]; then
+            echo "The path upstream/packages/obsidian-plugin does not exist in ${{ inputs.upstream_repository }}@${{ inputs.source_ref }}." >&2
+            exit 1
+          fi
+
+      - name: Sync package contents into repository root
+        run: |
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            upstream/packages/obsidian-plugin/ ./
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git status --porcelain | grep -q .; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: sync obsidian plugin from ${{ inputs.upstream_repository }}@${{ inputs.source_ref }}"
+
+      - name: Push changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: git push origin HEAD:${{ github.ref }}
