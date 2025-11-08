@@ -43,6 +43,7 @@ jobs:
           rsync -a --delete \
             --exclude '.git/' \
             --exclude '.github/' \
+            --exclude 'upstream/' \
             upstream/packages/obsidian-plugin/ ./
 
       - name: Detect changes
