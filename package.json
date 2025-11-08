@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "d3": "^7.9.0",
-    "event-modeling-language": "workspace:*",
-    "event-modeling-layout": "workspace:*",
+    "event-modeling-language": "0.0.1",
+    "event-modeling-layout": "1.0.0",
     "langium": "~4.1.0",
     "obsidian": "^1.6.7"
   },
